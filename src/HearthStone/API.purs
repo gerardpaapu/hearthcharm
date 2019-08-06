@@ -9,7 +9,7 @@ import Effect.Aff (Aff, error, throwError)
 import Effect.Class (liftEffect)
 import Foreign (renderForeignError)
 import Foreign.Object (fromHomogeneous)
-import Hearthcharm.HTTP (get', post, readToEnd, encodeURIComponent)
+import Hearthcharm.HTTP (getJSON, post, readToEnd)
 import Hearthstone.DTO as DTO
 import Node.Buffer as Buffer
 import Node.Encoding (Encoding(..))
@@ -48,12 +48,10 @@ authenticate (ClientID id) (ClientSecret secret) = do
 
 cards :: Token -> String -> Aff DTO.Pages
 cards (Token token) searchTerm = do
-  get' $ mempty
-    <> H.protocol := "https:"
-    <> H.hostname := "us.api.blizzard.com"
-    <> H.path := ("/hearthstone/cards" <> qs)
-    <> H.headers := H.RequestHeaders (fromHomogeneous h)
+  getJSON url query headers
   where
-    h = { "Authorization": "Bearer " <> token
-        , "Accept": "application/json" }
-    qs = "?locale=en_US&pageSize=1&textFilter=" <> (encodeURIComponent searchTerm)
+    url = "https://us.api.blizzard.com/hearthstone/cards"
+    query = { local: "en_US", pageSize: 1, textFilter: searchTerm }
+    headers =
+      { "Authorization": "Bearer " <> token
+      , "Accept": "application/json" }
