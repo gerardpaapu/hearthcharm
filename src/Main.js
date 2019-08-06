@@ -1,5 +1,5 @@
 exports.parseMessage = function (src) {
-    const pattern = /\{([a-z ,-]+)\}/mgi;
+    const pattern = /\{([a-z ,-']+)\}/mgi;
     const result = [];
     let match;
 

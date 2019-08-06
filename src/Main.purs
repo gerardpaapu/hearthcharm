@@ -71,13 +71,13 @@ handler = E.mkEffectFn1 $ \ev -> fromAff $ handle ev
 
             for_ searchResults $ \item ->
               case item.result of
-                Just card -> do
+                Just card ->
                   let block = Slack.imageBlock card.name card.image
-                  Slack.postMessage botToken channel thread card.name (Just [block])
+                  in Slack.postMessage botToken channel thread card.name (Just [block])
 
-                Nothing -> do
+                Nothing ->
                   let msg = "No results for: " <> item.term
-                  Slack.postMessage botToken channel thread msg  Nothing
+                  in Slack.postMessage botToken channel thread msg  Nothing
           _ -> pure unit
 
         pure $ { statusCode: 200.0
