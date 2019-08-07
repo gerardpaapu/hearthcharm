@@ -5,21 +5,52 @@ import Prelude
 import Data.Either (Either(..))
 import Data.List.NonEmpty as List
 import Data.Options ((:=))
+import Data.Symbol as S
 import Effect.Aff (Aff, error, throwError)
 import Effect.Class (liftEffect)
-import Foreign (renderForeignError)
+import Foreign (Foreign, ForeignError(..), fail, renderForeignError)
 import Foreign.Object (fromHomogeneous)
+import Hearthcharm.HTTP (GetRequest, Route, getJSON) as H
 import Hearthcharm.HTTP (getJSON, post, readToEnd)
 import Hearthstone.DTO as DTO
+import Naporitan as N
 import Node.Buffer as Buffer
 import Node.Encoding (Encoding(..))
-import Node.HTTP.Client as H
+import Node.HTTP.Client (RequestHeaders(..), headers, hostname, path, protocol, responseAsStream) as H
+import Simple.JSON (readImpl)
 import Simple.JSON as J
 
 newtype ClientID = ClientID String
 newtype ClientSecret = ClientSecret String
 newtype Token = Token String
 derive newtype instance foreignToken :: J.ReadForeign Token
+                        
+newtype Options a = Options (Array a)
+newtype Collectible = Collectible Boolean
+instance showCollectible :: Show Collectible where
+  show (Collectible b) = if b then "1" else "0"
+
+data SortOrder = Ascending | Descending
+
+instance showSortOrder :: Show SortOrder where
+  show Ascending = "asc"
+  show Descending = "desc"
+
+instance readForeignSortOrder :: J.ReadForeign SortOrder where
+  readImpl f = do
+    str :: String <- readImpl f
+    case str of
+      "asc" -> pure $ Ascending
+      "desc" -> pure $ Descending
+      _ -> fail <<< ForeignError $ "Invalid sort order" <> str
+
+data Rarity = Common | Free | Rare | Epic | Legendary
+instance showRarity :: Show Rarity where
+  show Common = "common"
+  show Free = "free"
+  show Rare = "rare"
+  show Epic = "epic"
+  show Legendary = "legendary"
 
 type AuthResponse
   = { access_token :: Token
@@ -46,12 +77,56 @@ authenticate (ClientID id) (ClientSecret secret) = do
         pure { "Authorization": "Basic " <> str
              , "Content-Type": "application/x-www-form-urlencoded" }
 
+type CardsOptions
+  = { locale :: S.SProxy "en_US"
+    , set :: String
+    , "class" :: String
+    , manaCost :: Array Number
+    , attack :: Array Number
+    , health :: Array Number
+    , collectible :: Array Collectible 
+    , rarity :: Rarity
+    , "type" :: String -- Minion, Spell, Hero, etc.
+    , minionType :: String -- There is metadata for this
+    , keyword :: String
+    , textFilter :: String
+    , page :: Int
+    , pageSize :: Int
+    , sort :: String -- There might not be metadata for this
+    , order :: SortOrder
+    }
+
+type LangOptions
+  = { region :: String
+    , locale :: S.SProxy "en_US"
+    }
+    
+routes ::
+  { cards :: H.Route H.GetRequest CardsOptions DTO.Pages "https://us.api.blizzard.com/hearthstone/cards"
+  , metadata :: H.Route H.GetRequest LangOptions Foreign "https://us.api.blizzard.com/hearthstone/metadata"
+  }
+routes = N.reflectRecordProxy
+
+auth :: Token -> { "Accept" :: String , "Authorization" :: String }                          
+auth (Token token) =
+  { "Authorization": "Bearer " <> token
+  , "Accept": "application/json"
+  }
+
 cards :: Token -> String -> Aff DTO.Pages
-cards (Token token) searchTerm = do
-  getJSON url query headers
-  where
-    url = "https://us.api.blizzard.com/hearthstone/cards"
-    query = { local: "en_US", pageSize: 1, textFilter: searchTerm }
-    headers =
-      { "Authorization": "Bearer " <> token
-      , "Accept": "application/json" }
+cards token searchTerm = do
+  getJSON
+    routes.cards
+    { locale: S.SProxy
+    , pageSize: 1
+    , textFilter: searchTerm
+    , collectible: [Collectible true]
+    }
+    (auth token)
+
+metadata :: Token -> Aff Foreign
+metadata token =
+  H.getJSON
+    routes.metadata
+    { locale: S.SProxy, region: "us" }
+    (auth token) 

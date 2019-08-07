@@ -21,6 +21,10 @@ class ToParam a where
 
 instance stringToParam :: ToParam String where
   toParam s = s
+else instance arrayToParam :: (ToParam a) => ToParam (Array a) where
+  toParam s = intercalate "," $ toParam <$> s
+else instance symbolToParam :: (IsSymbol a) => ToParam (SProxy a) where
+  toParam _ = reflectSymbol (SProxy :: _ a)
 else instance showToParam ::
  (Show a) => ToParam a where
   toParam s = show s

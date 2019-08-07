@@ -10,6 +10,7 @@ You can edit this file as you like.
     , "console"
     , "effect"
     , "filterable"
+    , "naporitan"
     , "node-buffer"
     , "node-http"
     , "node-process"

@@ -3,13 +3,12 @@ module Main where
 import Prelude
 
 import Control.Monad.Error.Class (class MonadThrow)
-import Control.Parallel (class Parallel, parTraverse)
+import Control.Parallel (parTraverse)
 import Control.Promise (Promise, fromAff)
 import Data.Array ((!!))
-import Data.Array as Array
 import Data.Foldable (class Foldable, foldl)
 import Data.Maybe (Maybe(..))
-import Data.Traversable (class Traversable, for_)
+import Data.Traversable (traverse_)
 import Effect.Aff (Aff, error, throwError)
 import Effect.Class (liftEffect)
 import Effect.Console as Console
@@ -21,10 +20,6 @@ import Simple.JSON as J
 import Slack.API (EventBody(..))
 import Slack.API as Slack
 
-
-inParallel :: forall f eff par a b. Parallel par eff => Traversable f => f a -> (a -> eff b) -> eff (f b)
-inParallel a b = parTraverse b a
-
 type Response
   = { statusCode :: Number
     , body :: String
@@ -34,8 +29,10 @@ type Response
 type LambdaEvent
   = { body :: String }
 
-handler :: E.EffectFn1 LambdaEvent (Promise Response)
-handler = E.mkEffectFn1 $ \ev -> fromAff $ handle ev
+type LambdaHandler = E.EffectFn1 LambdaEvent (Promise Response)
+    
+handler :: LambdaHandler 
+handler = E.mkEffectFn1 $ fromAff <<< handle 
   where
     handle ev = do
       clientID <- HS.ClientID <$> getEnv "HEARTHSTONE_CLIENT_ID"
@@ -57,19 +54,16 @@ handler = E.mkEffectFn1 $ \ev -> fromAff $ handle ev
         case params.event of
           Just (Message { channel, text, ts, thread_ts }) -> do
             token <- HS.authenticate clientID clientSecret
-            searchResults <- inParallel (parseMessage text) $ \term -> do
+            searchResults <- parseMessage text # parTraverse \term -> do
                 results <- HS.cards token.access_token term
-                pure $ { result: results.cards !! 0
-                       , term
-                       }
+                pure $ { result: results.cards !! 0 , term }
 
             let thread =
-                  if Array.length searchResults > 1 then
-                    Just ts
-                  else
-                    thread_ts
+                  case searchResults of
+                    [_] -> thread_ts
+                    _ -> Just ts
 
-            for_ searchResults $ \item ->
+            searchResults # traverse_ \item ->
               case item.result of
                 Just card ->
                   let block = Slack.imageBlock card.name card.image
@@ -97,7 +91,6 @@ getEnv a =
 orThrow :: forall t3 t6 t7. Foldable t3 => Applicative t6 => MonadThrow Error t6 => String -> t3 t7 -> t6 t7
 orThrow e m =
   foldl (\_ v -> pure v) (throwError (error e)) m
-
 
 log :: String -> Aff Unit
 log = liftEffect <<< Console.log

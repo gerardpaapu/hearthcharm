@@ -3,26 +3,37 @@ module Hearthcharm.HTTP where
 import Prelude
 
 import Data.Either (Either(..))
+import Data.Foldable as F
 import Data.List.NonEmpty (head)
 import Data.Maybe (Maybe(..))
 import Data.Nullable as N
 import Data.Options (Options, (:=))
 import Effect.Aff (Aff, error, makeAff, throwError)
-import Effect.Class (liftEffect)
-import Effect.Console as Console
 import Effect.Ref as Ref
 import Foreign (renderForeignError)
 import Foreign.Object (fromHomogeneous)
-import Type.Row.Homogeneous (class Homogeneous)
+import Naporitan (class ReflectProxy)
 import Node.Encoding (Encoding(..))
 import Node.HTTP.Client as H
-import Node.Stream as S
+import Node.Stream (Readable, end, onDataString, onEnd, onError, writeString) as S
 import Node.URL as URL
+import Prim.Row as Row
 import Query as Q
 import Simple.JSON as J
+import Type.Data.Symbol (SProxy(..), reflectSymbol) as S
+import Type.Data.Symbol (class IsSymbol)
+import Type.Row.Homogeneous (class Homogeneous)
 
 
+foreign import kind RequestMethod
+foreign import data GetRequest :: RequestMethod
+foreign import data PostRequest :: RequestMethod
 
+data Route (method :: RequestMethod) req res (url :: Symbol) = Route
+
+instance routeReflectProxy :: ReflectProxy (Route m i o u) where
+  reflectProxy = Route
+                    
 readToEnd :: forall r. Encoding -> S.Readable r -> Aff String
 readToEnd enc stream = makeAff go
   where
@@ -79,36 +90,49 @@ get' opt = do
     Right o  -> pure o
 
 getJSON ::
-  forall result query headers
+  forall result props props' query  headers urlT
   .  J.ReadForeign result
-  => Q.QueryString query
+  => Q.QueryString (Record props)
+  => Row.Union props props' query
   => Homogeneous headers String
-  => String
-  -> query
+  => IsSymbol urlT
+  => Route GetRequest (Record query) result urlT
+  -> Record props
   -> Record headers
   -> Aff result
-getJSON url query headers = do
+getJSON _ query headers = do
   let qs = Q.toQueryString query
-  let obj = URL.parse url
-  let options = mempty
-              <> (H.protocol := (obj.protocol # orDefault "https:"))
-              <> (H.hostname := (obj.hostname # orDefault ""))
-              <> (H.path := ((obj.path # orDefault "") <> qs))
-              <> (H.headers := H.RequestHeaders (fromHomogeneous headers))
-  resp <- get options
-  json <- readToEnd UTF8 (H.responseAsStream resp)
-
+  let url = S.reflectSymbol (S.SProxy :: _ urlT)
+  obj <- url
+         # parseURL
+         # orThrow ("Invalid URL: " <> show url)
+  resp <- get $ (H.protocol := obj.protocol)
+                <> (H.hostname := obj.hostname)
+                <> (H.path := (obj.path <> qs))
+                <> (H.headers := H.RequestHeaders (fromHomogeneous headers))
+  json <- readToEnd UTF8 $ H.responseAsStream resp
   case J.readJSON json of
     Left errs ->
-      errs # head # renderForeignError # error # throwError
+      throwError (errs # head # renderForeignError # error)
     Right v ->
       pure v
 
+parseURL :: String -> Maybe { hostname :: String , path :: String , protocol :: String}                   
+parseURL source = do
+  let obj = URL.parse source
+  { protocol: _, hostname: _, path: _ }
+    <$> N.toMaybe obj.protocol
+    <*> N.toMaybe obj.hostname
+    <*> N.toMaybe obj.path
+    
 orDefault :: forall a. a -> N.Nullable a -> a
 orDefault a n =
   case N.toMaybe n of
     Nothing -> a
     Just v -> v
+
+orThrow e m =
+  F.foldl (\_ v -> pure v) (throwError (error e)) m
 
 foreign import encodeURIComponent_ :: String -> String
 encodeURIComponent :: String -> String

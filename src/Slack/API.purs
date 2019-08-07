@@ -4,13 +4,9 @@ import Prelude
 
 import Data.Maybe (Maybe)
 import Data.Options ((:=))
-import Data.String as String
 import Effect.Aff (Aff)
-import Effect.Class (liftEffect)
-import Effect.Console as Console
-import Foreign (ForeignError(..), fail)
 import Foreign.Object (fromHomogeneous)
-import Hearthcharm.HTTP (post, readToEnd)
+import Hearthcharm.HTTP (post)
 import Node.Encoding (Encoding(..))
 import Node.Encoding as Buffer
 import Node.HTTP.Client as H
