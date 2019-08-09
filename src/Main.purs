@@ -4,12 +4,14 @@ import Prelude
 
 import Control.Monad.Error.Class (class MonadThrow)
 import Control.Parallel (parTraverse)
-import Control.Promise (Promise, fromAff)
 import Data.Array ((!!))
+import Data.Either (Either(..))
 import Data.Foldable (class Foldable, foldl)
 import Data.Maybe (Maybe(..))
+import Data.Nullable (Nullable, null)
 import Data.Traversable (traverse_)
-import Effect.Aff (Aff, error, forkAff, throwError)
+import Effect (Effect)
+import Effect.Aff (Aff, error, forkAff, runAff_, throwError)
 import Effect.Class (liftEffect)
 import Effect.Console as Console
 import Effect.Exception (Error)
@@ -29,10 +31,32 @@ type Response
 type LambdaEvent
   = { body :: String }
 
-type LambdaHandler = E.EffectFn1 LambdaEvent (Promise Response)
+type LambdaResponse
+  = { statusCode :: Number
+    , body :: String
+    , headers ::  { "Content-Type" :: String }
+    }
+
+foreign import data LambdaContext :: Type
+foreign import callbackWaitsForEmptyLoop :: Boolean -> LambdaContext -> Effect Unit
+
+type LambdaCallback = E.EffectFn2 (Nullable Error) LambdaResponse Unit
+type LambdaHandler = E.EffectFn3 LambdaEvent LambdaContext LambdaCallback Unit
 
 handler :: LambdaHandler
-handler = E.mkEffectFn1 $ fromAff <<< handle
+handler = E.mkEffectFn3 $ \event context cb_ -> do
+  let cb = E.runEffectFn2 cb_
+  context # callbackWaitsForEmptyLoop false
+  runAff_
+    (case _ of
+       Left err ->
+         cb null { statusCode: 500.0
+                 , body: "Oops!"
+                 , headers: { "Content-Type": "plain/text" }
+                 }
+       Right v  ->
+         cb null v)
+    (handle event)
   where
     handle ev = do
       params :: Slack.Event <- J.readJSON ev.body # orThrow "Invalid request body"
@@ -55,7 +79,7 @@ handler = E.mkEffectFn1 $ fromAff <<< handle
 
           pure $ { statusCode: 200.0
                  , body: ""
-                 , headers: { "Content-Type": "text/plain" }
+                 , headers: { "Content-Type": "application/json" }
                  }
 
 handleSlackMessage ::
@@ -65,7 +89,7 @@ handleSlackMessage ::
   , ts :: Slack.Thread
   }
   -> Aff Unit
-handleSlackMessage { text, thread_ts, ts, channel }= do
+handleSlackMessage { text, thread_ts, ts, channel } = do
   clientID <- HS.ClientID <$> getEnv "HEARTHSTONE_CLIENT_ID"
   clientSecret <- HS.ClientSecret <$> getEnv "HEARTHSTONE_CLIENT_SECRET"
 
@@ -88,7 +112,7 @@ handleSlackMessage { text, thread_ts, ts, channel }= do
 
       Nothing ->
         let msg = "No results for: " <> item.term
-        in Slack.postMessage botToken channel thread msg  Nothing
+        in Slack.postMessage botToken channel thread msg Nothing
 
 foreign import parseMessage :: String -> Array String
 

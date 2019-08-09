@@ -9,3 +9,11 @@ exports.parseMessage = function (src) {
 
     return result;
 };
+
+exports.callbackWaitsForEmptyLoop = function (b) {
+  return function (ctx) {
+    return function () {
+      return ctx.callbackWaitsForEmptyLoop = b;
+    };
+  };
+};
