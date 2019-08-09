@@ -8,6 +8,7 @@ You can edit this file as you like.
     [ "aff"
     , "aff-promise"
     , "console"
+    , "dotenv"
     , "effect"
     , "filterable"
     , "naporitan"

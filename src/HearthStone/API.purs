@@ -17,8 +17,13 @@ import Naporitan as N
 import Node.Buffer as Buffer
 import Node.Encoding (Encoding(..))
 import Node.HTTP.Client (RequestHeaders(..), headers, hostname, path, protocol, responseAsStream) as H
+import Prim.Row as R
+import Prim.Row as Row
+import Prim.RowList as R
+import Query as Q
 import Simple.JSON (readImpl)
 import Simple.JSON as J
+import Type.Equality as T
 
 newtype ClientID = ClientID String
 newtype ClientSecret = ClientSecret String
@@ -112,6 +117,7 @@ auth (Token token) =
   { "Authorization": "Bearer " <> token
   , "Accept": "application/json"
   }
+
 
 cards :: Token -> String -> Aff DTO.Pages
 cards token searchTerm = do

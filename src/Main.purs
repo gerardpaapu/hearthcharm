@@ -2,7 +2,6 @@ module Main where
 
 import Prelude
 
-import Control.Monad.Error.Class (class MonadThrow)
 import Control.Parallel (parTraverse)
 import Data.Array ((!!))
 import Data.Either (Either(..))
@@ -12,15 +11,44 @@ import Data.Nullable (Nullable, null)
 import Data.Traversable (traverse_)
 import Effect (Effect)
 import Effect.Aff (Aff, error, forkAff, runAff_, throwError)
+import Data.Maybe (Maybe(..))
+import Data.Symbol (SProxy(..))
+import Data.Traversable (traverse_)
+import Dotenv as Dotenv
+import Effect.Aff (Aff, error, launchAff_, throwError)
 import Effect.Class (liftEffect)
 import Effect.Console as Console
-import Effect.Exception (Error)
 import Effect.Uncurried as E
+import Hearthcharm.HTTP as HTTP
+import Hearthcharm.Util (orThrow)
 import Hearthstone.API as HS
 import Node.Process as Process
 import Simple.JSON as J
 import Slack.API (EventBody(..))
 import Slack.API as Slack
+
+main = launchAff_ do
+  _ <- Dotenv.loadFile
+  clientID <- HS.ClientID <$> getEnv "HEARTHSTONE_CLIENT_ID"
+  clientSecret <- HS.ClientSecret <$> getEnv "HEARTHSTONE_CLIENT_SECRET"
+  auth <- HS.authenticate clientID clientSecret
+  pagesFrom auth.access_token 1 
+  where
+    getPage token n =
+        HTTP.getJSON
+            HS.routes.cards
+            { locale: SProxy, pageSize: 200, page: n }
+            (HS.auth token)
+
+
+    pagesFrom token n = do
+      page <- getPage token n
+      page.cards # traverse_ \card ->
+        log $ (show card.name) <> "," <> (show card.slug)
+      if page.pageCount > page.page then
+        pagesFrom token (n + 1)
+      else
+        pure unit
 
 type Response
   = { statusCode :: Number
@@ -121,10 +149,6 @@ getEnv a =
   Process.lookupEnv a
     # liftEffect
     >>= orThrow ("missing env variable " <> a)
-
-orThrow :: forall t3 t6 t7. Foldable t3 => Applicative t6 => MonadThrow Error t6 => String -> t3 t7 -> t6 t7
-orThrow e m =
-  foldl (\_ v -> pure v) (throwError (error e)) m
 
 log :: String -> Aff Unit
 log = liftEffect <<< Console.log

@@ -3,7 +3,6 @@ module Hearthcharm.HTTP where
 import Prelude
 
 import Data.Either (Either(..))
-import Data.Foldable as F
 import Data.List.NonEmpty (head)
 import Data.Maybe (Maybe(..))
 import Data.Nullable as N
@@ -16,6 +15,7 @@ import Naporitan (class ReflectProxy)
 import Node.Encoding (Encoding(..))
 import Node.HTTP.Client as H
 import Node.Stream (Readable, end, onDataString, onEnd, onError, writeString) as S
+import Hearthcharm.Util as Util
 import Node.URL as URL
 import Prim.Row as Row
 import Query as Q
@@ -105,7 +105,7 @@ getJSON _ query headers = do
   let url = S.reflectSymbol (S.SProxy :: _ urlT)
   obj <- url
          # parseURL
-         # orThrow ("Invalid URL: " <> show url)
+         # Util.orThrow ("Invalid URL: " <> show url)
   resp <- get $ (H.protocol := obj.protocol)
                 <> (H.hostname := obj.hostname)
                 <> (H.path := (obj.path <> qs))
@@ -130,9 +130,6 @@ orDefault a n =
   case N.toMaybe n of
     Nothing -> a
     Just v -> v
-
-orThrow e m =
-  F.foldl (\_ v -> pure v) (throwError (error e)) m
 
 foreign import encodeURIComponent_ :: String -> String
 encodeURIComponent :: String -> String
