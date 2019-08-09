@@ -9,7 +9,7 @@ import Data.Array ((!!))
 import Data.Foldable (class Foldable, foldl)
 import Data.Maybe (Maybe(..))
 import Data.Traversable (traverse_)
-import Effect.Aff (Aff, error, throwError)
+import Effect.Aff (Aff, error, forkAff, throwError)
 import Effect.Class (liftEffect)
 import Effect.Console as Console
 import Effect.Exception (Error)
@@ -30,57 +30,67 @@ type LambdaEvent
   = { body :: String }
 
 type LambdaHandler = E.EffectFn1 LambdaEvent (Promise Response)
-    
-handler :: LambdaHandler 
-handler = E.mkEffectFn1 $ fromAff <<< handle 
+
+handler :: LambdaHandler
+handler = E.mkEffectFn1 $ fromAff <<< handle
   where
     handle ev = do
-      clientID <- HS.ClientID <$> getEnv "HEARTHSTONE_CLIENT_ID"
-      clientSecret <- HS.ClientSecret <$> getEnv "HEARTHSTONE_CLIENT_SECRET"
-      verificationToken <- Slack.VerificationToken <$> getEnv "VERIFICATION_TOKEN"
-      botToken <- Slack.BotToken <$> getEnv "BOT_TOKEN"
-
       params :: Slack.Event <- J.readJSON ev.body # orThrow "Invalid request body"
-
-      if params.token /= verificationToken then
-        throwError (error "Mismatched Verification Token")
-      else if params.type == "url_verification" then do
+      if params.type == "url_verification" then do
         let body = J.writeJSON { challenge: params.challenge }
         pure $ { statusCode: 200.0
                , body
                , headers: { "Content-Type": "application/json" }
                }
       else do
-        case params.event of
-          Just (Message { channel, text, ts, thread_ts }) -> do
-            token <- HS.authenticate clientID clientSecret
-            searchResults <- parseMessage text # parTraverse \term -> do
-                results <- HS.cards token.access_token term
-                pure $ { result: results.cards !! 0 , term }
+        verificationToken <- Slack.VerificationToken <$> getEnv "VERIFICATION_TOKEN"
+        if params.token /= verificationToken then
+          throwError (error "Mismatched Verification Token")
+        else do
+          case params.event of
+            Just (Message msg) ->
+              void $ forkAff $ handleSlackMessage msg
 
-            let thread =
-                  case searchResults of
-                    [_] -> thread_ts
-                    _ -> Just ts
+            otherwise -> pure unit
 
-            searchResults # traverse_ \item ->
-              case item.result of
-                Just card ->
-                  let block = Slack.imageBlock card.name card.image
-                  in Slack.postMessage botToken channel thread card.name (Just [block])
+          pure $ { statusCode: 200.0
+                 , body: ""
+                 , headers: { "Content-Type": "text/plain" }
+                 }
 
-                Nothing ->
-                  let msg = "No results for: " <> item.term
-                  in Slack.postMessage botToken channel thread msg  Nothing
-          _ -> pure unit
+handleSlackMessage ::
+  { channel :: Slack.Channel
+  , text :: String
+  , thread_ts :: Maybe Slack.Thread
+  , ts :: Slack.Thread
+  }
+  -> Aff Unit
+handleSlackMessage { text, thread_ts, ts, channel }= do
+  clientID <- HS.ClientID <$> getEnv "HEARTHSTONE_CLIENT_ID"
+  clientSecret <- HS.ClientSecret <$> getEnv "HEARTHSTONE_CLIENT_SECRET"
 
-        pure $ { statusCode: 200.0
-               , body: ""
-               , headers: { "Content-Type": "application/json" }
-               }
+  token <- HS.authenticate clientID clientSecret
+  searchResults <- parseMessage text # parTraverse \term -> do
+    results <- HS.cards token.access_token term
+    pure $ { result: results.cards !! 0 , term }
+
+  let thread =
+        case searchResults of
+          [_] -> thread_ts
+          _ -> Just ts
+
+  botToken <- Slack.BotToken <$> getEnv "BOT_TOKEN"
+  searchResults # traverse_ \item ->
+    case item.result of
+      Just card ->
+        let block = Slack.imageBlock card.name card.image
+        in Slack.postMessage botToken channel thread card.name (Just [block])
+
+      Nothing ->
+        let msg = "No results for: " <> item.term
+        in Slack.postMessage botToken channel thread msg  Nothing
 
 foreign import parseMessage :: String -> Array String
-
 
 getEnv :: String -> Aff String
 getEnv a =
