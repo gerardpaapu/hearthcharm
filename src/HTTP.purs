@@ -8,14 +8,16 @@ import Data.Maybe (Maybe(..))
 import Data.Nullable as N
 import Data.Options (Options, (:=))
 import Effect.Aff (Aff, error, makeAff, throwError)
+import Effect.Class (liftEffect)
+import Effect.Console (logShow)
 import Effect.Ref as Ref
 import Foreign (renderForeignError)
 import Foreign.Object (fromHomogeneous)
+import Hearthcharm.Util as Util
 import Naporitan (class ReflectProxy)
 import Node.Encoding (Encoding(..))
 import Node.HTTP.Client as H
 import Node.Stream (Readable, end, onDataString, onEnd, onError, writeString) as S
-import Hearthcharm.Util as Util
 import Node.URL as URL
 import Prim.Row as Row
 import Query as Q
@@ -106,6 +108,7 @@ getJSON _ query headers = do
   obj <- url
          # parseURL
          # Util.orThrow ("Invalid URL: " <> show url)
+  liftEffect $ logShow $ qs
   resp <- get $ (H.protocol := obj.protocol)
                 <> (H.hostname := obj.hostname)
                 <> (H.path := (obj.path <> qs))
@@ -117,7 +120,7 @@ getJSON _ query headers = do
     Right v ->
       pure v
 
-parseURL :: String -> Maybe { hostname :: String , path :: String , protocol :: String}                   
+parseURL :: String -> Maybe { hostname :: String , path :: String , protocol :: String }
 parseURL source = do
   let obj = URL.parse source
   { protocol: _, hostname: _, path: _ }

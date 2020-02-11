@@ -9,6 +9,6 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
-    "purescript": "^0.13.2"
+    "purescript": "^0.13.6"
   }
 }

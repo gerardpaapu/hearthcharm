@@ -4,26 +4,25 @@ import Prelude
 
 import Data.Either (Either(..))
 import Data.List.NonEmpty as List
+import Data.Maybe (Maybe(..))
 import Data.Options ((:=))
 import Data.Symbol as S
+import Effect (Effect)
 import Effect.Aff (Aff, error, throwError)
 import Effect.Class (liftEffect)
 import Foreign (Foreign, ForeignError(..), fail, renderForeignError)
 import Foreign.Object (fromHomogeneous)
 import Hearthcharm.HTTP (GetRequest, Route, getJSON) as H
 import Hearthcharm.HTTP (getJSON, post, readToEnd)
+import Hearthstone.DTO (Card)
 import Hearthstone.DTO as DTO
 import Naporitan as N
+import Node.Buffer (Buffer)
 import Node.Buffer as Buffer
 import Node.Encoding (Encoding(..))
 import Node.HTTP.Client (RequestHeaders(..), headers, hostname, path, protocol, responseAsStream) as H
-import Prim.Row as R
-import Prim.Row as Row
-import Prim.RowList as R
-import Query as Q
 import Simple.JSON (readImpl)
 import Simple.JSON as J
-import Type.Equality as T
 
 newtype ClientID = ClientID String
 newtype ClientSecret = ClientSecret String
@@ -57,6 +56,17 @@ instance showRarity :: Show Rarity where
   show Epic = "epic"
   show Legendary = "legendary"
 
+data GameMode = Constructed | Battlegrounds
+derive instance eqGameMode :: Eq GameMode
+instance showGameMOde :: Show GameMode where
+  show Constructed = "constructed"
+  show Battlegrounds = "battlegrounds"
+
+data Tier = All | Tier Int
+instance showTier :: Show Tier where
+  show All = "all"
+  show (Tier n) = show n
+
 type AuthResponse
   = { access_token :: Token
     , token_type :: String
@@ -65,7 +75,7 @@ type AuthResponse
 
 authenticate :: ClientID -> ClientSecret -> Aff AuthResponse
 authenticate (ClientID id) (ClientSecret secret) = do
-  headers <- liftEffect $ headers'
+  headers <- liftEffect headers'
   resp <- post "grant_type=client_credentials" $ mempty
           <> H.protocol := "https:"
           <> H.hostname := "us.battle.net"
@@ -77,7 +87,7 @@ authenticate (ClientID id) (ClientSecret secret) = do
     Right o -> pure o
     where
       headers' = do
-        buff <- Buffer.fromString (id <> ":" <> secret) Latin1
+        buff <- Buffer.fromString (id <> ":" <> secret) Latin1 :: Effect Buffer
         str <- Buffer.toString Base64 buff
         pure { "Authorization": "Basic " <> str
              , "Content-Type": "application/x-www-form-urlencoded" }
@@ -95,10 +105,12 @@ type CardsOptions
     , minionType :: String -- There is metadata for this
     , keyword :: String
     , textFilter :: String
+    , gameMode :: GameMode
     , page :: Int
     , pageSize :: Int
     , sort :: String -- There might not be metadata for this
     , order :: SortOrder
+    , tier :: Maybe Tier
     }
 
 type LangOptions
@@ -119,15 +131,33 @@ auth (Token token) =
   }
 
 
-cards :: Token -> String -> Aff DTO.Pages
-cards token searchTerm = do
+getImage :: Card -> String
+getImage card = case card.battlegrounds of
+  Just { image } -> image
+  _ -> card.image
+
+cards :: Token -> String -> GameMode -> Aff DTO.Pages
+cards token searchTerm gameMode = do
   getJSON
     routes.cards
-    { locale: S.SProxy
-    , pageSize: 1
-    , textFilter: searchTerm
-    , collectible: [Collectible true]
-    }
+    case gameMode of
+      Battlegrounds -> 
+        { locale: S.SProxy
+        , pageSize: 1
+        , textFilter: searchTerm
+        , collectible: []
+        , tier: Just All
+        , gameMode
+        }
+      Constructed ->
+        { locale: S.SProxy
+        , pageSize: 1
+        , textFilter: searchTerm
+        , collectible: [Collectible true]
+        , tier: Nothing
+        , gameMode
+        }
+        
     (auth token)
 
 metadata :: Token -> Aff Foreign

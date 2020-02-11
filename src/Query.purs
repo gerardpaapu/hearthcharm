@@ -3,6 +3,7 @@ module Query where
 import Prelude
 
 import Data.Foldable (intercalate)
+import Data.Maybe (Maybe(..))
 import Data.Symbol (SProxy(..))
 import Prim.Row as Row
 import Prim.RowList (class RowToList, Cons, Nil, kind RowList)
@@ -25,6 +26,9 @@ else instance arrayToParam :: (ToParam a) => ToParam (Array a) where
   toParam s = intercalate "," $ toParam <$> s
 else instance symbolToParam :: (IsSymbol a) => ToParam (SProxy a) where
   toParam _ = reflectSymbol (SProxy :: _ a)
+else instance maybeToParam :: (ToParam a) => ToParam (Maybe a) where
+  toParam (Just v) = toParam v
+  toParam Nothing = ""
 else instance showToParam ::
  (Show a) => ToParam a where
   toParam s = show s
