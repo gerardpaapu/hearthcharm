@@ -68,7 +68,7 @@ imageBlock title url =
   }
 
 type EventWrapper r
-   = { token :: VerificationToken
+   = { token :: Maybe VerificationToken
      , type :: String
      , challenge :: Maybe String
      , event :: Maybe r

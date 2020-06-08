@@ -8,7 +8,7 @@ import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
 import Data.Nullable (Nullable, null)
 import Data.Traversable (traverse_)
-import Dotenv as Dotenv 
+import Dotenv as Dotenv
 import Effect (Effect)
 import Effect.Aff (Aff, error, forkAff, launchAff_, runAff_, throwError)
 import Effect.Class (liftEffect)
@@ -17,8 +17,8 @@ import Effect.Console as Console
 import Effect.Exception (Error)
 import Effect.Uncurried as E
 import Hearthcharm.Util (orThrow)
-import Hearthstone.DTO as DTO
 import Hearthstone.API as HS
+import Hearthstone.DTO as DTO
 import Node.Process as Process
 import Simple.JSON as J
 import Slack.API (EventBody(..))
@@ -84,9 +84,10 @@ handler = E.mkEffectFn3 $ \event context cb_ -> do
   context # callbackWaitsForEmptyLoop false
   runAff_
     (case _ of
-       Left err ->
+       Left err -> do
+         Console.log $ "Server Error: " <> show err
          cb null { statusCode: 500.0
-                 , body: "Oops!"
+                 , body: "Server Error"
                  , headers: { "Content-Type": "plain/text" }
                  }
        Right v  ->
@@ -94,7 +95,9 @@ handler = E.mkEffectFn3 $ \event context cb_ -> do
     (handle event)
   where
     handle ev = do
-      params :: Slack.Event <- J.readJSON ev.body # orThrow "Invalid request body"
+      params :: Slack.Event <- case J.readJSON ev.body of
+        Left err -> throwError (error $ show err)
+        Right v -> pure v
       if params.type == "url_verification" then do
         let body = J.writeJSON { challenge: params.challenge }
         pure $ { statusCode: 200.0
@@ -103,7 +106,7 @@ handler = E.mkEffectFn3 $ \event context cb_ -> do
                }
       else do
         verificationToken <- Slack.VerificationToken <$> getEnv "VERIFICATION_TOKEN"
-        if params.token /= verificationToken then
+        if params.token /= Just verificationToken then
           throwError (error "Mismatched Verification Token")
         else do
           case params.event of
